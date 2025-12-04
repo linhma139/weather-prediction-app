@@ -2,7 +2,7 @@
 
 A **Streamlit** web application to visualize and analyze weather data for major cities in Vietnam (Ha Noi, Ho Chi Minh, Da Nang), powered by real observations and LSTM-based prediction models running on **Databricks**.
 
-![Home page screenshot](graphics/home_page.png)
+![Home page screenshot](home_page.png)
 
 ### 🌐 Live Demo
 
@@ -95,3 +95,4 @@ The app is deployed on **Streamlit Community Cloud**:
   `https://weather-prediction-app-j5zagaxajexjyxszokvbdn.streamlit.app/`
 
 When deploying to Streamlit Cloud, configure `secrets` under **App settings → Secrets** using the same format as `secrets.toml` above.
+
