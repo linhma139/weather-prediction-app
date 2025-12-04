@@ -2,7 +2,7 @@
 
 A **Streamlit** web application to visualize and analyze weather data for major cities in Vietnam (Ha Noi, Ho Chi Minh, Da Nang), powered by real observations and LSTM-based prediction models running on **Databricks**.
 
-![Home page screenshot](home_page.png)
+![Home page screenshot](home_page.jpg)
 
 ### 🌐 Live Demo
 
