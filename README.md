@@ -4,7 +4,6 @@ A **Streamlit** web application to visualize and analyze weather data for major 
 
 ![Home page screenshot](home_page.jpg)
 
-![alt text](2.png)
 
 
 ### 🌐 Live Demo
