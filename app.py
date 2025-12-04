@@ -10,6 +10,9 @@ from datetime import datetime, timedelta
 # ============================================================================
 st.set_page_config(page_title="Weather Forecast Dashboard", layout="wide")
 
+# Múi giờ Việt Nam
+VIETNAM_TZ = "Asia/Ho_Chi_Minh"
+
 # Danh sách thành phố
 CITIES = {
     "Hà Nội": "Ha Noi City",
@@ -193,11 +196,23 @@ def create_temperature_forecast_chart(df):
     if df.empty:
         st.warning("Không có dữ liệu dự đoán.")
         return
-    
+
+    # Chuyển forecast_time sang giờ Việt Nam
+    if "forecast_time" in df.columns:
+        df = df.copy()
+        if not pd.api.types.is_datetime64_any_dtype(df["forecast_time"]):
+            df["forecast_time"] = pd.to_datetime(df["forecast_time"], utc=True, errors="coerce")
+        if df["forecast_time"].dt.tz is None:
+            df["forecast_time"] = df["forecast_time"].dt.tz_localize("UTC")
+        df["forecast_time_vn"] = df["forecast_time"].dt.tz_convert(VIETNAM_TZ)
+        x_col = "forecast_time_vn"
+    else:
+        x_col = "forecast_time"
+
     fig = go.Figure()
     
     fig.add_trace(go.Scatter(
-        x=df['forecast_time'],
+        x=df[x_col],
         y=df['predicted_temperature'],
         mode='lines+markers',
         name='Nhiệt Độ Dự Đoán',
@@ -207,7 +222,7 @@ def create_temperature_forecast_chart(df):
     
     fig.update_layout(
         title="🌡️ Dự Đoán Nhiệt Độ 24 Giờ Tiếp Theo",
-        xaxis_title="Thời Gian",
+        xaxis_title="Thời Gian (UTC+7)",
         yaxis_title="Nhiệt Độ (°C)",
         height=500,
         hovermode='x unified',
@@ -278,8 +293,18 @@ def create_comparison_chart(df):
         return
     
     fig = go.Figure()
-    
-    x_col = 'date' if 'date' in df.columns else df.index
+
+    # Chuyển cột thời gian sang giờ Việt Nam nếu có
+    if "date" in df.columns:
+        df = df.copy()
+        if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+            df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce")
+        if df["date"].dt.tz is None:
+            df["date"] = df["date"].dt.tz_localize("UTC")
+        df["date_vn"] = df["date"].dt.tz_convert(VIETNAM_TZ)
+        x_col = "date_vn"
+    else:
+        x_col = df.index
     
     fig.add_trace(go.Scatter(
         x=df[x_col],
@@ -388,8 +413,18 @@ def create_multi_city_comparison(cities_data):
     
     for city, df in cities_data.items():
         if not df.empty and 'nr_temperature_2m' in df.columns:
+            # Không dùng nhiều trong app hiện tại, nhưng vẫn đồng bộ về giờ VN nếu có cột date
+            time_x = df.index
+            if "date" in df.columns:
+                if not pd.api.types.is_datetime64_any_dtype(df["date"]):
+                    df = df.copy()
+                    df["date"] = pd.to_datetime(df["date"], utc=True, errors="coerce")
+                if df["date"].dt.tz is None:
+                    df["date"] = df["date"].dt.tz_localize("UTC")
+                time_x = df["date"].dt.tz_convert(VIETNAM_TZ)
+
             fig.add_trace(go.Scatter(
-                x=df.index if 'date' not in df.columns else df['date'],
+                x=time_x,
                 y=df['nr_temperature_2m'],
                 mode='lines+markers',
                 name=city,
@@ -504,17 +539,20 @@ def main():
                         break
 
                 if temp_col is not None:
-                    # Đảm bảo cột thời gian là datetime để hiển thị đẹp
+                    # Đảm bảo cột thời gian là datetime & chuyển sang giờ Việt Nam
+                    df = df.copy()
                     if not pd.api.types.is_datetime64_any_dtype(df["dt_date_record"]):
-                        df = df.copy()
-                        df["dt_date_record"] = pd.to_datetime(df["dt_date_record"])
+                        df["dt_date_record"] = pd.to_datetime(df["dt_date_record"], utc=True, errors="coerce")
+                    if df["dt_date_record"].dt.tz is None:
+                        df["dt_date_record"] = df["dt_date_record"].dt.tz_localize("UTC")
+                    df["dt_date_record_vn"] = df["dt_date_record"].dt.tz_convert(VIETNAM_TZ)
 
                     fig = px.line(
-                        df.sort_values("dt_date_record"),
-                        x="dt_date_record",
+                        df.sort_values("dt_date_record_vn"),
+                        x="dt_date_record_vn",
                         y=temp_col,
                         title="🌡️ Nhiệt Độ Hàng Ngày",
-                        labels={temp_col: "Nhiệt Độ (°C)", "dt_date_record": "Ngày"},
+                        labels={temp_col: "Nhiệt Độ (°C)", "dt_date_record_vn": "Ngày (UTC+7)"},
                     )
                     fig.update_layout(height=400)
                     st.plotly_chart(fig, use_container_width=True)
@@ -537,12 +575,23 @@ def main():
                 create_weather_metrics_cards(df, "hourly")
                 st.markdown("---")
                 
-                # Biểu đồ nhiệt độ theo giờ
-                if 'nr_temperature_2m' in df.columns:
-                    fig = px.line(df.head(168), x='dt_date_record', y='nr_temperature_2m',
-                                 title="🌡️ Nhiệt Độ Theo Giờ (7 Ngày Gần Nhất)",
-                                 labels={'nr_temperature_2m': 'Nhiệt Độ (°C)', 
-                                        'dt_date_record': 'Thời Gian'})
+                # Biểu đồ nhiệt độ theo giờ (chuyển sang giờ Việt Nam)
+                if 'nr_temperature_2m' in df.columns and 'dt_date_record' in df.columns:
+                    df = df.copy()
+                    if not pd.api.types.is_datetime64_any_dtype(df["dt_date_record"]):
+                        df["dt_date_record"] = pd.to_datetime(df["dt_date_record"], utc=True, errors="coerce")
+                    if df["dt_date_record"].dt.tz is None:
+                        df["dt_date_record"] = df["dt_date_record"].dt.tz_localize("UTC")
+                    df["dt_date_record_vn"] = df["dt_date_record"].dt.tz_convert(VIETNAM_TZ)
+
+                    fig = px.line(
+                        df.sort_values("dt_date_record_vn").head(168),
+                        x='dt_date_record_vn',
+                        y='nr_temperature_2m',
+                        title="🌡️ Nhiệt Độ Theo Giờ (UTC+7, 7 Ngày Gần Nhất)",
+                        labels={'nr_temperature_2m': 'Nhiệt Độ (°C)', 
+                                'dt_date_record_vn': 'Thời Gian (UTC+7)'}
+                    )
                     fig.update_layout(height=400)
                     st.plotly_chart(fig, use_container_width=True)
                 
