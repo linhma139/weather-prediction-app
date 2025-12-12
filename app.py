@@ -122,9 +122,9 @@ def get_rain_probability_today(city):
     
     query = """
     SELECT 
-      CURRENT_DATE() AS today,
       dt_forecast_date AS forecast_date,
       prediction_probability AS rain_probability,
+      prediction_label AS rain_label,
       ds_location AS location,
       dt_model_run_time AS model_run_time
     FROM (
@@ -135,10 +135,11 @@ def get_rain_probability_today(city):
         ) AS rn
       FROM hcmut.gold.lstm_rain_daily
       WHERE ds_location = :city
+        AND DATE(from_utc_timestamp(dt_forecast_date, 'Asia/Ho_Chi_Minh')) >= CURRENT_DATE()
     )
     WHERE rn = 1
-      AND DATE(from_utc_timestamp(dt_forecast_date, 'Asia/Ho_Chi_Minh')) = CURRENT_DATE()
-    LIMIT 1
+    ORDER BY dt_forecast_date ASC
+    LIMIT 5
     """
     
     cursor.execute(query, parameters={"city": city})
@@ -232,14 +233,19 @@ def create_temperature_forecast_chart(df):
     st.plotly_chart(fig, use_container_width=True)
 
 def create_rain_probability_gauge(df):
-    """Biểu đồ gauge xác suất mưa cho ngày hôm nay"""
+    """Biểu đồ gauge xác suất mưa - hỗ trợ nhiều dự đoán"""
     if df.empty:
-        st.warning("Không có dữ liệu xác suất mưa cho ngày hôm nay.")
+        st.warning("Không có dữ liệu xác suất mưa.")
         return
 
-    # Giá trị gốc từ model là 0–1, chuyển sang %
-    rain_prob_raw = df['rain_probability'].iloc[0]
+    # Lấy dòng đầu tiên (mới nhất theo model_run_time)
+    row = df.iloc[0]
+    rain_prob_raw = row['rain_probability']
     rain_prob = rain_prob_raw * 100
+    
+    # Lấy thông tin forecast date
+    forecast_date = pd.to_datetime(row['forecast_date'], utc=True)
+    forecast_date_vn = forecast_date.tz_convert(VIETNAM_TZ).strftime('%d-%m-%Y %H:%M')
     
     # Xác định màu sắc và nhãn
     if rain_prob < 30:
@@ -260,7 +266,7 @@ def create_rain_probability_gauge(df):
         mode = "gauge+number+delta",
         value = rain_prob,
         domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': f"🌧️ Xác Suất Mưa Hôm Nay<br><span style='font-size:0.8em;color:gray'>{label}</span>"},
+        title = {'text': f"🌧️ Xác Suất Mưa ({forecast_date_vn})<br><span style='font-size:0.8em;color:gray'>{label}</span>"},
         delta = {'reference': 50, 'position': "top"},
         gauge = {
             'axis': {'range': [None, 100]},
@@ -285,6 +291,17 @@ def create_rain_probability_gauge(df):
     )
     
     st.plotly_chart(fig, use_container_width=True)
+    
+    # Hiển thị bảng chi tiết nếu có nhiều dự đoán
+    if len(df) > 1:
+        st.subheader("📋 Chi Tiết Dự Đoán Mưa")
+        display_df = df.copy()
+        display_df['forecast_date'] = pd.to_datetime(display_df['forecast_date'], utc=True)
+        display_df['forecast_date_vn'] = display_df['forecast_date'].dt.tz_convert(VIETNAM_TZ).dt.strftime('%d-%m-%Y %H:%M')
+        display_df['rain_probability'] = (display_df['rain_probability'] * 100).round(2).astype(str) + '%'
+        display_df = display_df[['forecast_date_vn', 'rain_probability', 'rain_label', 'location']]
+        display_df.columns = ['Thời Gian Dự Đoán', 'Xác Suất Mưa', 'Nhãn', 'Địa Điểm']
+        st.dataframe(display_df, use_container_width=True)
 
 def create_comparison_chart(df):
     """Biểu đồ so sánh dự đoán vs thực tế"""
@@ -627,7 +644,7 @@ def main():
                 st.warning("Không có dữ liệu dự đoán cho thành phố này.")
         
         elif data_type == "🌧️ Xác Suất Mưa":
-            st.header(f"🌧️ Xác Suất Mưa Hôm Nay - {selected_city}")
+            st.header(f"🌧️ Xác Suất Mưa - {selected_city}")
             
             with st.spinner('Đang tải dữ liệu xác suất mưa...'):
                 df = get_rain_probability_today(db_city)
@@ -641,22 +658,22 @@ def main():
                 col1, col2, col3 = st.columns([1, 2, 1])
                 with col2:
                     if rain_prob < 30:
-                        st.metric("🌧️ Xác Suất Mưa Hôm Nay", f"{rain_prob:.1f}%", 
+                        st.metric("🌧️ Xác Suất Mưa", f"{rain_prob:.1f}%", 
                                  delta=f"{rain_prob - 50:.1f}% so với ngưỡng 50%",
                                  delta_color="inverse")
                         st.info("☀️ Ít khả năng mưa - Thời tiết khô ráo")
                     elif rain_prob < 50:
-                        st.metric("🌧️ Xác Suất Mưa Hôm Nay", f"{rain_prob:.1f}%", 
+                        st.metric("🌧️ Xác Suất Mưa", f"{rain_prob:.1f}%", 
                                  delta=f"{rain_prob - 50:.1f}% so với ngưỡng 50%",
                                  delta_color="off")
                         st.warning("⛅ Có thể mưa - Nên mang theo ô")
                     elif rain_prob < 70:
-                        st.metric("🌧️ Xác Suất Mưa Hôm Nay", f"{rain_prob:.1f}%", 
+                        st.metric("🌧️ Xác Suất Mưa", f"{rain_prob:.1f}%", 
                                  delta=f"{rain_prob - 50:.1f}% so với ngưỡng 50%",
                                  delta_color="normal")
                         st.warning("🌦️ Khả năng mưa cao - Nên mang theo ô")
                     else:
-                        st.metric("🌧️ Xác Suất Mưa Hôm Nay", f"{rain_prob:.1f}%", 
+                        st.metric("🌧️ Xác Suất Mưa", f"{rain_prob:.1f}%", 
                                  delta=f"{rain_prob - 50:.1f}% so với ngưỡng 50%",
                                  delta_color="normal")
                         st.error("🌧️ Rất có khả năng mưa - Nhớ mang theo ô!")
@@ -668,14 +685,27 @@ def main():
                 
                 st.markdown("---")
                 st.subheader("📋 Chi Tiết")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**Ngày:** {df['forecast_date'].iloc[0]}")
-                    st.write(f"**Thành phố:** {df['location'].iloc[0]}")
-                with col2:
-                    st.write(f"**Xác suất mưa:** {rain_prob:.1f}%")
-                    if 'model_run_time' in df.columns:
-                        st.write(f"**Thời gian dự đoán:** {df['model_run_time'].iloc[0]}")
+                
+                # Xử lý và hiển thị chi tiết
+                try:
+                    forecast_date = pd.to_datetime(df['forecast_date'].iloc[0], utc=True)
+                    forecast_date_vn = forecast_date.tz_convert(VIETNAM_TZ).strftime('%d-%m-%Y %H:%M')
+                    
+                    model_run_time = pd.to_datetime(df['model_run_time'].iloc[0], utc=True)
+                    model_run_time_vn = model_run_time.tz_convert(VIETNAM_TZ).strftime('%d-%m-%Y %H:%M:%S')
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.write(f"**Ngày dự đoán:** {forecast_date_vn}")
+                        st.write(f"**Thành phố:** {df['location'].iloc[0]}")
+                    with col2:
+                        st.write(f"**Xác suất mưa:** {rain_prob:.2f}%")
+                        st.write(f"**Thời gian model chạy:** {model_run_time_vn}")
+                    
+                    if 'rain_label' in df.columns:
+                        st.write(f"**Nhãn dự đoán:** {'Có mưa' if df['rain_label'].iloc[0] == 1 else 'Không mưa'}")
+                except Exception as e:
+                    st.error(f"Lỗi xử lý dữ liệu chi tiết: {e}")
             else:
                 st.warning("Không có dữ liệu xác suất mưa cho ngày hôm nay.")
         
